@@ -8,6 +8,7 @@ using Newtonsoft.Json;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Host;
 using ContosoFunction.Models;
+using System.Text.RegularExpressions;
 
 namespace ContosoFunction
 {
@@ -18,8 +19,8 @@ namespace ContosoFunction
         private static readonly string ComputerVisionEndpoint = "https://eastus.api.cognitive.microsoft.com/vision/v2.0/tag?language=en";
         private static readonly string ComputerVisionApiKey = "c0d79a086d184cfda8c79f4e4d9d284b";
         private static readonly double ComputerVisionConfidence = 0.6;
-        private static readonly string CustomVisionEndpoint = "";
-        private static readonly string CustomVisionApiKey = "";
+        private static readonly string CustomVisionEndpoint = "https://southcentralus.api.cognitive.microsoft.com/customvision/v2.0/Prediction/41cbac4e-8634-4a7e-8926-e0022e668362/url?iterationId=fe0110dd-dd92-4a40-a723-bf187f3278fa";
+        private static readonly string CustomVisionApiKey = "7a966ec07feb4be785b1944b2b2cd5c4";
         private static readonly string TextAnalyticsEndpoint = "https://eastus.api.cognitive.microsoft.com/text/analytics/v2.0/sentiment";
         private static readonly string TextAnalyticsApiKey = "56382ddc1f8842d7a5a897e9eb937638";
         private static readonly string RunIndexerEndpoint = "https://adschallengepoc.search.windows.net/indexers/claimsindexer/run?api-version=2017-11-11";
@@ -27,7 +28,7 @@ namespace ContosoFunction
         #endregion
 
         [FunctionName("Function1")]
-        public static async Task<bool> Run(
+        public static async Task<HttpResponseMessage> Run(
             [HttpTrigger(
                 WebHookType = "genericJson")] HttpRequestMessage req,
             [DocumentDB(
@@ -46,23 +47,34 @@ namespace ContosoFunction
                 string imageUrl = data.imageUrl;
                 string text = data.text;
 
+                #region normalize claim
+                string normalizedText = Regex.Replace(text, @"\. *([a-z0-9])", ". $1", RegexOptions.IgnoreCase);
+                #endregion
+
                 #region Get claim summary
-                string summary = "summary";
+                string summary;
 
-                using (var client = new HttpClient())
+                if (normalizedText.Split('.').Count() > 3)
                 {
-                    var body = new
+                    using (var client = new HttpClient())
                     {
-                        text,
-                    };
-                    var content = new StringContent(JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
-                    var response = await client.PostAsync(TextSummaryEndpoint, content);
+                        var body = new
+                        {
+                            txt = normalizedText,
+                        };
+                        var content = new StringContent(JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
+                        var response = await client.PostAsync(TextSummaryEndpoint, content);
 
-                    if (!response.IsSuccessStatusCode)
-                        throw new Exception($"Failed to get claim summary. Status code: {response.StatusCode}. Reason phrase: {response.ReasonPhrase}");
+                        if (!response.IsSuccessStatusCode)
+                            throw new Exception($"Failed to get claim summary. Status code: {response.StatusCode}. Reason phrase: {response.ReasonPhrase}");
 
-                    summary = await response.Content.ReadAsStringAsync();
+                        var responseString = await response.Content.ReadAsStringAsync();
+                        string[] summaries = JsonConvert.DeserializeObject<string[]>(responseString);
+                        summary = summaries[0];
+                    }
                 }
+                else
+                    summary = normalizedText;
                 #endregion
 
                 #region Get claim sentiment
@@ -70,7 +82,7 @@ namespace ContosoFunction
 
                 using (var client = new HttpClient())
                 {
-                    var body = new TextAnalytics.Request(1, text);
+                    var body = new TextAnalytics.Request(1, normalizedText);
                     var content = new StringContent(JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
                     client.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", TextAnalyticsApiKey);
                     var response = await client.PostAsync(TextAnalyticsEndpoint, content);
@@ -79,9 +91,9 @@ namespace ContosoFunction
                         throw new Exception($"Failed to get claim sentiment. Status code: {response.StatusCode}. Reason phrase: {response.ReasonPhrase}");
 
                     string responseString = await response.Content.ReadAsStringAsync();
-                    var analyticsResponse = JsonConvert.DeserializeObject<TextAnalytics.Response>(responseString);
+                    var textAnalyticsResponse = JsonConvert.DeserializeObject<TextAnalytics.Response>(responseString);
 
-                    sentiment = analyticsResponse.documents.Where(x => x.id == 1).FirstOrDefault().score;
+                    sentiment = textAnalyticsResponse.documents.Where(x => x.id == 1).FirstOrDefault().score;
                 }
                 #endregion
 
@@ -106,23 +118,25 @@ namespace ContosoFunction
                 #endregion
 
                 #region Get image category
-                string category = "category";
+                double autoProbability;
+                double homeProbability;
 
-                //using (var client = new HttpClient())
-                //{
-                //    var body = new ComputerVision.Request(imageUrl);
-                //    var content = new StringContent(JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
-                //    client.DefaultRequestHeaders.Add("Ocp-Apim-Subscription-Key", CustomVisionApiKey);
-                //    var response = await client.PostAsync(CustomVisionApiEndpoint, content);
+                using (var client = new HttpClient())
+                {
+                    var body = new ComputerVision.Request(imageUrl);
+                    var content = new StringContent(JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
+                    client.DefaultRequestHeaders.Add("Prediction-Key", CustomVisionApiKey);
+                    var response = await client.PostAsync(CustomVisionEndpoint, content);
 
-                //    if (!response.IsSuccessStatusCode)
-                //        throw new Exception($"Failed to classify image. Status code: {response.StatusCode}. Reason phrase: {response.ReasonPhrase}");
+                    if (!response.IsSuccessStatusCode)
+                        throw new Exception($"Failed to classify image. Status code: {response.StatusCode}. Reason phrase: {response.ReasonPhrase}");
 
-                //    string responseString = await response.Content.ReadAsStringAsync();
-                //    //var customVisionResponse = JsonConvert.DeserializeObject<ComputerVision.Response>(responseString);
+                    string responseString = await response.Content.ReadAsStringAsync();
+                    var customVisionResponse = JsonConvert.DeserializeObject<CustomVision.Response>(responseString);
 
-                //    category = "nothing so far";
-                //}
+                    autoProbability = customVisionResponse.predictions.Where(x => string.Equals(x.tagName, "auto", StringComparison.OrdinalIgnoreCase)).First().probability;
+                    homeProbability = customVisionResponse.predictions.Where(x => string.Equals(x.tagName, "home", StringComparison.OrdinalIgnoreCase)).First().probability;
+                }
                 #endregion
 
                 #region Store in DB
@@ -130,36 +144,37 @@ namespace ContosoFunction
                 {
                     Guid = Guid.NewGuid().ToString(),
                     ImageUrl = imageUrl,
-                    Claim = text,
+                    Claim = normalizedText,
                     Summary = summary,
                     Sentiment = sentiment,
-                    Category = category,
+                    AutoProbability = autoProbability,
+                    HomeProbability = homeProbability,
                     Tags = tags,
                 };
 
                 await document.AddAsync(claimDocument);
                 #endregion
 
-                #region Update indexer
-                bool indexUpdated = false;
+                //#region Update indexer
+                //bool indexUpdated = false;
 
-                using (var client = new HttpClient())
-                {
-                    client.DefaultRequestHeaders.Add("api-key", SearchApiKey);
-                    var response = await client.PostAsync(RunIndexerEndpoint, null);
+                //using (var client = new HttpClient())
+                //{
+                //    client.DefaultRequestHeaders.Add("api-key", SearchApiKey);
+                //    var response = await client.PostAsync(RunIndexerEndpoint, null);
 
-                    if (response.StatusCode != HttpStatusCode.Accepted)
-                        throw new Exception($"Failed to run indexer. Status code: {response.StatusCode}. Reason phrase: {response.ReasonPhrase}");
+                //    if (response.StatusCode != HttpStatusCode.Accepted)
+                //        throw new Exception($"Failed to run indexer. Status code: {response.StatusCode}. Reason phrase: {response.ReasonPhrase}");
 
-                    indexUpdated = true;
-                }
-                #endregion
+                //    indexUpdated = true;
+                //}
+                //#endregion
 
-                return true;
+                return req.CreateResponse(HttpStatusCode.OK);
             }
             catch (Exception e)
             {
-                throw e;
+                return req.CreateErrorResponse(HttpStatusCode.InternalServerError, $"Request failed. Exception message: {e.Message}");
             }
         }
     }
