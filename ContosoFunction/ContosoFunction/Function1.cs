@@ -28,7 +28,7 @@ namespace ContosoFunction
         #endregion
 
         [FunctionName("Function1")]
-        public static async Task<HttpResponseMessage> Run(
+        public static async Task<ClaimDocument> Run(
             [HttpTrigger(
                 WebHookType = "genericJson")] HttpRequestMessage req,
             [DocumentDB(
@@ -155,26 +155,22 @@ namespace ContosoFunction
                 await document.AddAsync(claimDocument);
                 #endregion
 
-                //#region Update indexer
-                //bool indexUpdated = false;
+                #region Update indexer
+                using (var client = new HttpClient())
+                {
+                    client.DefaultRequestHeaders.Add("api-key", SearchApiKey);
+                    var response = await client.PostAsync(RunIndexerEndpoint, null);
 
-                //using (var client = new HttpClient())
-                //{
-                //    client.DefaultRequestHeaders.Add("api-key", SearchApiKey);
-                //    var response = await client.PostAsync(RunIndexerEndpoint, null);
+                    if (response.StatusCode != HttpStatusCode.Accepted)
+                        throw new Exception($"Failed to run indexer. Status code: {response.StatusCode}. Reason phrase: {response.ReasonPhrase}");
+                }
+                #endregion
 
-                //    if (response.StatusCode != HttpStatusCode.Accepted)
-                //        throw new Exception($"Failed to run indexer. Status code: {response.StatusCode}. Reason phrase: {response.ReasonPhrase}");
-
-                //    indexUpdated = true;
-                //}
-                //#endregion
-
-                return req.CreateResponse(HttpStatusCode.OK);
+                return claimDocument;
             }
             catch (Exception e)
             {
-                return req.CreateErrorResponse(HttpStatusCode.InternalServerError, $"Request failed. Exception message: {e.Message}");
+                throw e;
             }
         }
     }
