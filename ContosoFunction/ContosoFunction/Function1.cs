@@ -9,22 +9,25 @@ using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Host;
 using ContosoFunction.Models;
 using System.Text.RegularExpressions;
+using System.Configuration;
 
 namespace ContosoFunction
 {
     public static class Function1
     {
+        /// Store the values for the variables below in local.settings.json for testing purposes,
+        /// make sure to add the to the App Settings in the Azure function when publishing the solution.
         #region private variables
-        private static readonly string TextSummaryEndpoint = "http://nltk.azurewebsites.net/";
-        private static readonly string ComputerVisionEndpoint = "https://eastus.api.cognitive.microsoft.com/vision/v2.0/tag?language=en";
-        private static readonly string ComputerVisionApiKey = "c0d79a086d184cfda8c79f4e4d9d284b";
-        private static readonly double ComputerVisionConfidence = 0.6;
-        private static readonly string CustomVisionEndpoint = "https://southcentralus.api.cognitive.microsoft.com/customvision/v2.0/Prediction/41cbac4e-8634-4a7e-8926-e0022e668362/url?iterationId=fe0110dd-dd92-4a40-a723-bf187f3278fa";
-        private static readonly string CustomVisionApiKey = "7a966ec07feb4be785b1944b2b2cd5c4";
-        private static readonly string TextAnalyticsEndpoint = "https://eastus.api.cognitive.microsoft.com/text/analytics/v2.0/sentiment";
-        private static readonly string TextAnalyticsApiKey = "56382ddc1f8842d7a5a897e9eb937638";
-        private static readonly string RunIndexerEndpoint = "https://adschallengepoc.search.windows.net/indexers/claimsindexer/run?api-version=2017-11-11";
-        private static readonly string SearchApiKey = "A46B38C64CD5E842A0727B126193E2C3";
+        private static readonly string TextSummaryEndpoint = ConfigurationManager.AppSettings["TextSummaryEndpoint "];
+        private static readonly string ComputerVisionEndpoint = ConfigurationManager.AppSettings["ComputerVisionEndpoint"];
+        private static readonly string ComputerVisionApiKey = ConfigurationManager.AppSettings["ComputerVisionApiKey"];
+        private static readonly double ComputerVisionConfidence = Convert.ToDouble(ConfigurationManager.AppSettings["ComputerVisionConfidence"]);
+        private static readonly string CustomVisionEndpoint = ConfigurationManager.AppSettings["CustomVisionEndpoint"];
+        private static readonly string CustomVisionApiKey = ConfigurationManager.AppSettings["CustomVisionApiKey"];
+        private static readonly string TextAnalyticsEndpoint = ConfigurationManager.AppSettings["TextAnalyticsEndpoint"];
+        private static readonly string TextAnalyticsApiKey = ConfigurationManager.AppSettings["TextAnalyticsApiKey"];
+        private static readonly string RunIndexerEndpoint = ConfigurationManager.AppSettings["RunIndexerEndpoint"];
+        private static readonly string SearchApiKey = ConfigurationManager.AppSettings["SearchApiKey"];
         #endregion
 
         [FunctionName("Function1")]
